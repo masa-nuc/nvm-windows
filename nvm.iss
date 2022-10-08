@@ -13,7 +13,7 @@
 ; NOTE: The value of AppId uniquely identifies this application.
 ; Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 ; SignTool=MsSign $f
 ; SignedUninstaller=yes
 AppId={#MyAppId}
@@ -87,19 +87,7 @@ begin
   // Move the existing node.js installation directory to the nvm root & update the path
   RenameFile(np,ExpandConstant('{app}')+'\'+nv);
 
-  RegQueryStringValue(HKEY_LOCAL_MACHINE,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'Path', path);
-
-  StringChangeEx(path,np+'\','',True);
-  StringChangeEx(path,np,'',True);
-  StringChangeEx(path,np+';;',';',True);
-
-  RegWriteExpandStringValue(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', path);
-
-  RegQueryStringValue(HKEY_CURRENT_USER,
-    'Environment',
-    'Path', path);
+  RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', path);
 
   StringChangeEx(path,np+'\','',True);
   StringChangeEx(path,np,'',True);
@@ -194,52 +182,31 @@ begin
     'Select the folder in which Setup should create the symlink, then click Next.',
     False, '');
   SymlinkPage.Add('This directory will automatically be added to your system path.');
-  SymlinkPage.Values[0] := ExpandConstant('{pf}\nodejs');
+  SymlinkPage.Values[0] := ExpandConstant('{userappdata}')+'\nodejs';
 end;
 
 function InitializeUninstall(): Boolean;
 var
   path: string;
+  nvm_home: string;
   nvm_symlink: string;
 begin
   SuppressibleMsgBox('Removing NVM for Windows will remove the nvm command and all versions of node.js, including global npm modules.', mbInformation, MB_OK, IDOK);
 
   // Remove the symlink
-  RegQueryStringValue(HKEY_LOCAL_MACHINE,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'NVM_SYMLINK', nvm_symlink);
+  RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'NVM_SYMLINK', nvm_symlink);
   RemoveDir(nvm_symlink);
 
+  RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'NVM_HOME', nvm_home);
+
   // Clean the registry
-  RegDeleteValue(HKEY_LOCAL_MACHINE,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'NVM_HOME')
-  RegDeleteValue(HKEY_LOCAL_MACHINE,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'NVM_SYMLINK')
-  RegDeleteValue(HKEY_CURRENT_USER,
-    'Environment',
-    'NVM_HOME')
-  RegDeleteValue(HKEY_CURRENT_USER,
-    'Environment',
-    'NVM_SYMLINK')
+  RegDeleteValue(HKEY_CURRENT_USER, 'Environment', 'NVM_HOME')
+  RegDeleteValue(HKEY_CURRENT_USER, 'Environment', 'NVM_SYMLINK')
 
-  RegQueryStringValue(HKEY_LOCAL_MACHINE,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'Path', path);
+  RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', path);
 
-  StringChangeEx(path,'%NVM_HOME%','',True);
-  StringChangeEx(path,'%NVM_SYMLINK%','',True);
-  StringChangeEx(path,';;',';',True);
-
-  RegWriteExpandStringValue(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', path);
-
-  RegQueryStringValue(HKEY_CURRENT_USER,
-    'Environment',
-    'Path', path);
-
-  StringChangeEx(path,'%NVM_HOME%','',True);
-  StringChangeEx(path,'%NVM_SYMLINK%','',True);
+  StringChangeEx(path,nvm_home,'',True);
+  StringChangeEx(path,nvm_symlink,'',True);
   StringChangeEx(path,';;',';',True);
 
   RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', path);
@@ -251,43 +218,33 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   path: string;
+  nvm_home: string;
+  nvm_symlink: string;
 begin
   if CurStep = ssPostInstall then
   begin
     SaveStringToFile(ExpandConstant('{app}\settings.txt'), 'root: ' + ExpandConstant('{app}') + #13#10 + 'path: ' + SymlinkPage.Values[0] + #13#10, False);
 
+    nvm_home := ExpandConstant('{app}');
+    nvm_symlink := SymlinkPage.Values[0];
+
     // Add Registry settings
-    RegWriteExpandStringValue(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'NVM_HOME', ExpandConstant('{app}'));
-    RegWriteExpandStringValue(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'NVM_SYMLINK', SymlinkPage.Values[0]);
-    RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'NVM_HOME', ExpandConstant('{app}'));
-    RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'NVM_SYMLINK', SymlinkPage.Values[0]);
+    RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'NVM_HOME', nvm_home);
+    RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'NVM_SYMLINK', nvm_symlink);
     
     RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppId}_is1', 'DisplayVersion', '{#MyAppVersion}');
 
     // Update system and user PATH if needed
-    RegQueryStringValue(HKEY_LOCAL_MACHINE,
-      'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-      'Path', path);
-    if Pos('%NVM_HOME%',path) = 0 then begin
-      path := path+';%NVM_HOME%';
-      StringChangeEx(path,';;',';',True);
-      RegWriteExpandStringValue(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', path);
-    end;
-    if Pos('%NVM_SYMLINK%',path) = 0 then begin
-      path := path+';%NVM_SYMLINK%';
-      StringChangeEx(path,';;',';',True);
-      RegWriteExpandStringValue(HKEY_LOCAL_MACHINE, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', path);
-    end;
     RegQueryStringValue(HKEY_CURRENT_USER,
       'Environment',
       'Path', path);
-    if Pos('%NVM_HOME%',path) = 0 then begin
-      path := path+';%NVM_HOME%';
+    if Pos(nvm_home,path) = 0 then begin
+      path := path+';'+nvm_home;
       StringChangeEx(path,';;',';',True);
       RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', path);
     end;
-    if Pos('%NVM_SYMLINK%',path) = 0 then begin
-      path := path+';%NVM_SYMLINK%';
+    if Pos(nvm_symlink,path) = 0 then begin
+      path := path+';'+nvm_symlink;
       StringChangeEx(path,';;',';',True);
       RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', path);
     end;
@@ -310,7 +267,7 @@ begin
 end;
 
 [Run]
-Filename: "{cmd}"; Parameters: "/C ""mklink /D ""{code:getSymLink}"" ""{code:getCurrentVersion}"""" "; Check: isNodeAlreadyInUse; Flags: runhidden;
+Filename: "{cmd}"; Parameters: "/C ""mklink /J ""{code:getSymLink}"" ""{code:getCurrentVersion}"""" "; Check: isNodeAlreadyInUse; Flags: runhidden;
 
 [UninstallDelete]
 Type: files; Name: "{app}\nvm.exe";
